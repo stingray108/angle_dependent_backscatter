@@ -1,4 +1,5 @@
 # This is a python script for coding angle dependent acoustic backscatter
+# This is to test if git commit is working
 
 # 1
 import matplotlib.pyplot as plt
