@@ -13,17 +13,21 @@ from sys import exit
 
 # Define important starting variables
 c_w = 1485  # m/s speed of sound in water
-f_a = 30  # kHz
-m_phi = 2 # sand = 1-2; silt = 6.4; clay = 9
+f_a = 93  # kHz
+m_phi = 6.4 # sand = 1-2; silt = 6.4; clay = 9
 # Theta values in degrees
 theta_grazing_lower = 70
-theta_grazing_upper = 89
+theta_grazing_upper = 89.9
 theta_grazing_step = .5
 # For the integration portion of si, use large upper bound. Step only used if summation used instead
 si_integrand_lowerbound = 0  # For si integration
 si_integrand_upperbound = 10 ** 3  # For si integration
 si_integrand_step = 10 ** -2  # For si integration
 si_integrand_vector = np.arange(si_integrand_lowerbound, si_integrand_upperbound, si_integrand_step)  # For si integration
+
+svl_integrand_lowerbound = 0  # For si integration
+svl_integrand_upperbound = 10 ** 3  # For si integration
+svl_integrand_step = 10 ** -2  # For si integration
 
 # Define functions to define other important starting variables
 def func_rho():
@@ -90,7 +94,7 @@ def func_sigma_v():
 
 def func_r(tht):
     numerator = rho * v * np.cos(tht) - (1 - v * np.sin(tht) ** 2) ** (1 / 2)
-    denominator = rho * c_w * np.cos(tht) + (1 - c_w * np.sin(tht) ** 2) ** (1 / 2)
+    denominator = rho * v * np.cos(tht) + (1 - v * np.sin(tht) ** 2) ** (1 / 2)
     return numerator / denominator
 
 # Calculate the remaining starting variables
@@ -130,10 +134,8 @@ variables['r_normal'] = r_normal
 
 
 def func_q(tht):  ##This throws some form of error when a 0 is input, it returns a nan
-    print(f'func_q tht: {tht}')
     first = np.cos(tht) ** 2
     second = np.sin(tht) ** (-2 * alpha)
-    print(f'func_q second: {second}')
     third = c_zeta_2
     fourth = 2 ** (1 - 2 * alpha)
     fifth = k_a ** (2 * (1 - alpha))
@@ -157,23 +159,38 @@ def func_vf(tht):  # When a 0 is input it returns an infinity
 
 
 # Transmission term (large-scale interface with small rms slope)
-def func_vl(theta):  # right now this is only returning 0s
-    coef = 1 / ((np.pi * func_zeta(theta)) * .5)
-    integral = integrate.quad(lambda x: func_vf(theta - x) * np.exp(-(x ** 2 / func_zeta(theta) ** 2)), -1*(np.pi / 2 - theta),
-                              si_integrand_upperbound)
-    return coef * integral[0]
+# def func_vl(theta):  # right now this is only returning 0s
+#     coef = 1 / ((np.pi * func_zeta(theta)) * .5)
+#     integral = integrate.quad(lambda x: func_vf(theta - x) * np.exp(-(x ** 2 / func_zeta(theta) ** 2)), -1*(np.pi / 2 - theta),
+#                               si_integrand_upperbound)
+#     return coef * integral[0]
+
+def func_vl(tht, upper_bound, step_size):  # right now this is only returning 0s
+    du = step_size
+    u = -np.pi/(2-tht)
+    sum = 0
+    while u <= upper_bound:
+        one = (1 - func_r(tht) ** 2) ** 2
+        two = np.cos(tht - u) ** 2
+        three = 1 - (v * np.sin(tht - u) ** 2) ** -.5
+        four = np.exp(-(u ** 2 / func_zeta(tht) ** 2))
+        sum += du*one*two*three*four
+        u += step_size
+
+    coef = 1 / ((np.pi * func_zeta(tht)) * .5)
+    return coef*sum
 
 
-def func_si(theta, lower_bound, upper_bound, step_size):
+def func_si(tht, lower_bound, upper_bound, step_size):
     # Note alpha is not an input because in this file it is universal variable
-    if theta > 0:
+    if tht > 0:
         # Define integration by series bounds, samples, and dx
         du = step_size
 
         # Calculate si
         first = r_normal ** 2
-        second = (8*np.pi*np.cos(theta)**2 * np.sin(theta)**2)**-1
-        q = func_q(theta)
+        second = (8 * np.pi * np.cos(tht) ** 2 * np.sin(tht) ** 2) ** -1
+        q = func_q(tht)
         # # Using standard integration
         # third = integrate.quad(lambda x: np.exp(-q * x ** (2 * alpha)) * np.i0(x) * x, lower_bound, upper_bound)
         # return first*second*third[0]
@@ -193,7 +210,7 @@ def func_si(theta, lower_bound, upper_bound, step_size):
 
         return first*second*sum
 
-    elif theta == 0:
+    elif tht == 0:
         first = r_normal ** 2
         second = (8 * np.pi * alpha) ** -1
         third = c_zeta ** (-2 / alpha)
@@ -239,11 +256,6 @@ def main():
     theta_array = theta_incidence_array*(np.pi/180)
     print(f'theta_array: {theta_array}')
     q_array = np.zeros(len(theta_array))
-    for index, theta in enumerate(theta_array):
-        q_array[index] = func_q(theta)
-
-    print(f'q_array: {q_array}')
-
 
     # Allocate Memory
     svl_array = np.zeros(len(theta_array))
@@ -253,13 +265,14 @@ def main():
     # Calculate si with flag to plot
     for theta_index, theta in enumerate(theta_array):
         si_array[theta_index] = func_si(theta, si_integrand_lowerbound, si_integrand_upperbound, si_integrand_step)
+        si_array[theta_index] = 10*np.log10(si_array[theta_index])
 
     if si_plot_flag is True:
-        x = theta_grazing_array
+        x = theta_incidence_array
         y = si_array
         plt.plot(x, y)
         plt.title('Si vs. Grazing Angle')
-        plt.xlabel('Grazing Angle (deg)')
+        plt.xlabel('Incidence Angle (deg)')
         plt.ylabel('Si Value')
         plt.legend()
         plt.grid()
@@ -268,7 +281,11 @@ def main():
 
     # Calculate svl with flag to plot
     for theta_index, theta in enumerate(theta_array):
-        svl_array[theta_index] = sigma_2*func_vl(theta)/(2/(10*np.log10(np.e)))
+        svl_array[theta_index] = sigma_2 * func_vl(theta, svl_integrand_upperbound, svl_integrand_step) / (2/(10 * np.log10(np.e)))
+        svl_array[theta_index] = 10*np.log10(svl_array[theta_index])  # to dB
+        print(f'svl {theta_index}: {svl_array[theta_index]}')
+
+    print(f'svl_array: {svl_array}')
 
     if svl_plot_flag is True:
         x = theta_grazing_array
